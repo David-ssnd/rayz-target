@@ -1,36 +1,61 @@
-// RayZ Target Device
-// Using shared library for common protocol definitions
-
 #include <Arduino.h>
-#include "rayz_common.h"
 
-const int LED_PIN = 2; // use GPIO2 as a reliable built-in LED pin on many dev boards
+#define PHOTODIODE_PIN 2  // GPIO2 (ADC1_CH2)
+#define SAMPLE_INTERVAL 100  // milliseconds
+
+// ESP32-C3 ADC parameters
+const float ADC_VREF = 3.3;  // Reference voltage
+const int ADC_RESOLUTION = 4095;  // 12-bit ADC (0-4095)
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial) { delay(10); }
+  delay(1000);
   
-  Serial.println("=== RayZ Target Device ===");
-  Serial.printf("Protocol Version: %s\n", RAYZ_PROTOCOL_VERSION);
-  Serial.printf("Build Version: %s\n", RAYZ_VERSION);
-  Serial.printf("Device Type: TARGET (0x%02X)\n", DEVICE_TARGET);
-  Serial.println("========================");
+  Serial.println("ESP32-C3 Photodiode Voltage Reader");
+  Serial.println("===================================");
   
-  pinMode(LED_PIN, OUTPUT);
+  // Configure ADC
+  analogReadResolution(12);  // 12-bit resolution
+  analogSetAttenuation(ADC_11db);  // 0-3.3V range
+  
+  Serial.println("ADC Configuration:");
+  Serial.println("- Resolution: 12-bit (0-4095)");
+  Serial.println("- Range: 0-3.3V");
+  Serial.println("- Sample Rate: Every 100ms");
+  Serial.println();
+  Serial.println("Time(ms)\tRaw ADC\tVoltage(V)");
 }
 
 void loop() {
-  // Create a heartbeat message using shared protocol
-  RayZMessage msg;
-  msg.deviceType = DEVICE_TARGET;
-  msg.messageType = MSG_HEARTBEAT;
-  msg.payloadLength = 0;
+  // Read analog value
+  int rawValue = analogRead(PHOTODIODE_PIN);
   
-  digitalWrite(LED_PIN, HIGH);
-  delay(250);
-  digitalWrite(LED_PIN, LOW);
-  delay(250);
+  // Convert to voltage
+  float voltage = (rawValue * ADC_VREF) / ADC_RESOLUTION;
   
-  Serial.printf("Target heartbeat - Type: 0x%02X, Msg: 0x%02X\n", 
-                msg.deviceType, msg.messageType);
+  // Print results
+  Serial.print(millis());
+  Serial.print("\t\t");
+  Serial.print(rawValue);
+  Serial.print("\t");
+  Serial.println(voltage, 4);  // 4 decimal places
+  
+  delay(SAMPLE_INTERVAL);
 }
+
+/*
+ * Optional: Add averaging for more stable readings
+ * Uncomment the function below and call it instead of analogRead()
+ */
+
+/*
+float readPhotodiodeAverage(int samples = 10) {
+  long sum = 0;
+  for(int i = 0; i < samples; i++) {
+    sum += analogRead(PHOTODIODE_PIN);
+    delayMicroseconds(100);
+  }
+  float avgRaw = sum / (float)samples;
+  return (avgRaw * ADC_VREF) / ADC_RESOLUTION;
+}
+*/
