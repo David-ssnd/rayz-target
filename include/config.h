@@ -2,11 +2,9 @@
 #define CONFIG_H
 
 #define PHOTODIODE_PIN 2
+#define VIBRATION_PIN 5
 #define SAMPLE_INTERVAL 100
-
-#define OLED_SDA 8
-#define OLED_SCL 9
-#define OLED_ADDRESS 0x3C
+#define VIBRATION_DURATION 50
 
 const float ADC_VREF = 3.3;
 const int ADC_RESOLUTION = 4095;

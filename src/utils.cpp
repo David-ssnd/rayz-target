@@ -25,14 +25,4 @@ void Utils::printSystemInfo() {
     Serial.println("- Protocol: 12 data bits + 4 hash bits");
     Serial.println("- Dynamic Threshold: Enabled");
     Serial.println();
-    
-    Serial.println("OLED Display:");
-    Serial.print("- SDA: GPIO ");
-    Serial.println(OLED_SDA);
-    Serial.print("- SCL: GPIO ");
-    Serial.println(OLED_SCL);
-    Serial.println();
-    
-    Serial.println("Waiting for valid messages...");
-    Serial.println();
 }
