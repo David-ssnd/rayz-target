@@ -11,6 +11,10 @@ BLETarget bleTarget;
 uint16_t expectedMessage = 0;
 bool hasExpectedMessage = false;
 
+uint16_t all_expected_messages = 0;
+uint16_t correct_messages = 0;
+uint16_t not_expected_messages = 0;
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -30,11 +34,13 @@ void loop() {
   bleTarget.update();
   
   if (bleTarget.hasMessage()) {
+    all_expected_messages++;
+
     expectedMessage = bleTarget.getMessage();
     hasExpectedMessage = true;
     
     Serial.println();
-    Serial.print(" 📡 BLE | ");
+    Serial.print("📡BLE | ");
     Serial.print(millis());
     Serial.print(" ms | ");
     Serial.print(toBinaryString(expectedMessage, MESSAGE_TOTAL_BITS));
@@ -80,13 +86,27 @@ void loop() {
     Serial.print("V | Thr: ");
     Serial.print(photodiode.getDynamicThreshold(), 4);
     Serial.print("V");
-    
-    if (bleTarget.isConnected() && hasExpectedMessage) {
-      Serial.print(matchesBLE ? " | ✓ BLE MATCH" : " | ✗ BLE MISMATCH");
-      if (matchesBLE) {
-        hasExpectedMessage = false;
-      }
+
+    if (bleTarget.isConnected() && hasExpectedMessage && matchesBLE) {
+      Serial.print(" | ✓ BLE MATCH");
+      correct_messages++;
+    } else {
+      Serial.print(" | ✗ BLE MISMATCH");
+      not_expected_messages++;
     }
+    Serial.println();
+    Serial.print("Stats: ");
+    Serial.print(correct_messages);
+    Serial.print("/");
+    Serial.print(all_expected_messages);
+    Serial.print(" | Incorrect: ");
+    Serial.print(all_expected_messages - correct_messages);
+    Serial.print(" | Not Expected: ");
+    Serial.print(not_expected_messages);
+    Serial.print(" | Accuracy: ");
+    float accuracy = (all_expected_messages > 0) ? (correct_messages * 100.0f / all_expected_messages) : 0.0f;
+    Serial.print(accuracy, 2);
+    Serial.print("%");
     Serial.println();
     
     delay(VIBRATION_DURATION);
