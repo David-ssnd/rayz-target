@@ -1,9 +1,12 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include "protocol_config.h"
+
 #define PHOTODIODE_PIN 2
 #define VIBRATION_PIN 5
-#define SAMPLE_INTERVAL 100
+
+#define SAMPLE_INTERVAL SAMPLE_INTERVAL_MS
 #define VIBRATION_DURATION 50
 
 const float ADC_VREF = 3.3;
