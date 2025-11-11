@@ -14,7 +14,7 @@ Photodiode::Photodiode() {
 
 void Photodiode::begin() {
   analogReadResolution(12);
-  analogSetAttenuation(ADC_11db);
+  analogSetAttenuation(ADC_ATTENUATION);
   
   for (int i = 0; i < SAMPLES_PER_BIT; i++) {
     sampleBuffer[i] = 0.0f;
@@ -38,9 +38,12 @@ void Photodiode::update() {
   int rawValue = analogRead(PHOTODIODE_PIN);
   float voltage = (rawValue * ADC_VREF) / ADC_RESOLUTION;
   
-  runningMin = min(runningMin * 0.99f + voltage * 0.01f, voltage);
-  runningMax = max(runningMax * 0.99f + voltage * 0.01f, voltage);
-  updateThreshold();
+  // Update min/max
+  if (voltage < runningMin) {
+    runningMin = runningMin * THRESHOLD_MIN_WEIGHT + voltage * THRESHOLD_NEW_WEIGHT;
+  } else if (voltage > runningMax) {
+    runningMax = runningMax * THRESHOLD_MIN_WEIGHT + voltage * THRESHOLD_NEW_WEIGHT;
+  }
   
   sampleBuffer[sampleIndex] = voltage;
   sampleIndex++;
@@ -48,20 +51,24 @@ void Photodiode::update() {
   if (sampleIndex >= SAMPLES_PER_BIT) {
     sampleBufferFull = true;
 
-    float sum = 0.0f;
+    // Average samples
+    float avgVoltage = 0.0f;
     for (int i = 0; i < SAMPLES_PER_BIT; i++) {
-      sum += sampleBuffer[i];
+      avgVoltage += sampleBuffer[i];
     }
-    float avgVoltage = sum / SAMPLES_PER_BIT;
+    avgVoltage /= SAMPLES_PER_BIT;
+    
+    // Update threshold
+    float midpoint = (runningMin + runningMax) * 0.5f;
+    dynamicThreshold = dynamicThreshold * THRESHOLD_SMOOTH_OLD + midpoint * THRESHOLD_SMOOTH_NEW;
     
     if (bufferFull) {
-      // Sliding window: shift all values left and add new value at the end
+      // Sliding window
       for (int i = 0; i < PHOTODIODE_BUFFER_SIZE - 1; i++) {
         bitBuffer[i] = bitBuffer[i + 1];
       }
       bitBuffer[PHOTODIODE_BUFFER_SIZE - 1] = avgVoltage;
     } else {
-      // Still filling the buffer for the first time
       bitBuffer[bitIndex] = avgVoltage;
       bitIndex++;
       
@@ -75,11 +82,6 @@ void Photodiode::update() {
   }
 }
 
-void Photodiode::updateThreshold() {
-  float midpoint = (runningMin + runningMax) / 2.0f;
-  dynamicThreshold = dynamicThreshold * 0.8f + midpoint * 0.2f;
-}
-
 uint16_t Photodiode::convertToBits() {
   if (!bufferFull) {
     return 0;
@@ -88,9 +90,11 @@ uint16_t Photodiode::convertToBits() {
   sampleBufferFull = false;
 
   uint16_t result = 0;
+  float threshold = dynamicThreshold;
+  
   for (int i = 0; i < PHOTODIODE_BUFFER_SIZE; i++) {
     result <<= 1;
-    if (bitBuffer[i] > dynamicThreshold) {
+    if (bitBuffer[i] > threshold) {
       result |= 1;
     }
   }

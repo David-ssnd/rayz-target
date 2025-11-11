@@ -31,32 +31,10 @@ void setup() {
 }
 
 void loop() {
-  bleTarget.update();
-  
-  if (bleTarget.hasMessage()) {
-    all_expected_messages++;
-
-    expectedMessage = bleTarget.getMessage();
-    hasExpectedMessage = true;
-    
-    Serial.println();
-    Serial.print("📡BLE | ");
-    Serial.print(millis());
-    Serial.print(" ms | ");
-    Serial.print(toBinaryString(expectedMessage, MESSAGE_TOTAL_BITS));
-    Serial.print(" | Expected Data: ");
-    uint16_t expectedData = 0;
-    if (validateMessage16bit(expectedMessage, &expectedData)) {
-      Serial.println(expectedData);
-    } else {
-      Serial.println("INVALID");
-    }
-  }
-  
   photodiode.update();
   
   if (photodiode.isSampleBufferFull()) {
-    uint16_t message16bit = photodiode.convertToBits(); // Sample buffer = false inside
+    uint16_t message16bit = photodiode.convertToBits();
     uint16_t dataValue = 0;
     bool isValid = validateMessage16bit(message16bit, &dataValue);
     
@@ -79,7 +57,6 @@ void loop() {
     Serial.print(" (0b");
     Serial.print(dataValue, BIN);
     Serial.print(")");
-    digitalWrite(VIBRATION_PIN, HIGH);
     
     Serial.print(" | Sig: ");
     Serial.print(photodiode.getSignalStrength(), 3);
@@ -108,9 +85,28 @@ void loop() {
     Serial.print(accuracy, 2);
     Serial.print("%");
     Serial.println();
+  }
+  
+  bleTarget.update();
+  
+  if (bleTarget.hasMessage()) {
+    all_expected_messages++;
+
+    expectedMessage = bleTarget.getMessage();
+    hasExpectedMessage = true;
     
-    delay(VIBRATION_DURATION);
-    digitalWrite(VIBRATION_PIN, LOW);
+    Serial.println();
+    Serial.print("📡BLE | ");
+    Serial.print(millis());
+    Serial.print(" ms | ");
+    Serial.print(toBinaryString(expectedMessage, MESSAGE_TOTAL_BITS));
+    Serial.print(" | Expected Data: ");
+    uint16_t expectedData = 0;
+    if (validateMessage16bit(expectedMessage, &expectedData)) {
+      Serial.println(expectedData);
+    } else {
+      Serial.println("INVALID");
+    }
   }
 }
 

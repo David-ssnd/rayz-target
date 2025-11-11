@@ -22,8 +22,6 @@ private:
     unsigned long lastSampleTime;
     unsigned long bitStartTime;
     
-    void updateThreshold();
-    
 public:
     Photodiode();
     void begin();
