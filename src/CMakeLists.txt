@@ -1,0 +1,13 @@
+idf_component_register(
+    SRCS 
+        "main.cpp"
+        "photodiode.cpp"
+    INCLUDE_DIRS 
+        "../include"
+    REQUIRES
+        driver
+        esp_adc
+        nvs_flash
+        bt
+        shared
+)

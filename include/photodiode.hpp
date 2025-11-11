@@ -3,7 +3,10 @@
 
 #include "config.h"
 #include "hash.h"
-#include <Arduino.h>
+#include <esp_adc/adc_oneshot.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+
 
 class Photodiode
 {
@@ -20,8 +23,14 @@ class Photodiode
     float runningMax;
     float dynamicThreshold;
 
-    unsigned long lastSampleTime;
-    unsigned long bitStartTime;
+    uint32_t lastSampleTime;
+    uint32_t bitStartTime;
+
+    // ESP-IDF ADC handle
+    adc_oneshot_unit_handle_t adc_handle;
+
+    // FreeRTOS synchronization
+    SemaphoreHandle_t bufferMutex;
 
   public:
     Photodiode();

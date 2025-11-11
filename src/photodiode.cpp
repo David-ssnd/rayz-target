@@ -1,4 +1,9 @@
 #include "photodiode.hpp"
+#include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+static const char* TAG = "Photodiode";
 
 Photodiode::Photodiode()
 {
@@ -11,12 +16,33 @@ Photodiode::Photodiode()
     dynamicThreshold = 1.65f;
     lastSampleTime = 0;
     bitStartTime = 0;
+    adc_handle = nullptr;
+    bufferMutex = nullptr;
 }
 
 void Photodiode::begin()
 {
-    analogReadResolution(12);
-    analogSetAttenuation(ADC_ATTENUATION);
+    // Create mutex for buffer protection
+    bufferMutex = xSemaphoreCreateMutex();
+    if (bufferMutex == NULL)
+    {
+        ESP_LOGE(TAG, "Failed to create mutex");
+        return;
+    }
+
+    // Configure ADC
+    adc_oneshot_unit_init_cfg_t init_config = {
+        .unit_id = ADC_UNIT_1,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &adc_handle));
+
+    adc_oneshot_chan_cfg_t config = {
+        .atten = ADC_ATTEN_DB_11,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    ESP_ERROR_CHECK(
+        adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_6, &config)); // GPIO34 = ADC1_CHANNEL_6
 
     for (int i = 0; i < SAMPLES_PER_BIT; i++)
     {
@@ -27,13 +53,15 @@ void Photodiode::begin()
         bitBuffer[i] = 0.0f;
     }
 
-    lastSampleTime = millis();
-    bitStartTime = millis();
+    lastSampleTime = pdTICKS_TO_MS(xTaskGetTickCount());
+    bitStartTime = pdTICKS_TO_MS(xTaskGetTickCount());
+
+    ESP_LOGI(TAG, "Photodiode initialized");
 }
 
 void Photodiode::update()
 {
-    unsigned long currentTime = millis();
+    uint32_t currentTime = pdTICKS_TO_MS(xTaskGetTickCount());
 
     if (currentTime - lastSampleTime < SAMPLE_INTERVAL_MS)
     {
@@ -41,7 +69,8 @@ void Photodiode::update()
     }
     lastSampleTime = currentTime;
 
-    int rawValue = analogRead(PHOTODIODE_PIN);
+    int rawValue = 0;
+    ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, ADC_CHANNEL_6, &rawValue));
     float voltage = (rawValue * ADC_VREF) / ADC_RESOLUTION;
 
     // Update min/max
@@ -74,24 +103,29 @@ void Photodiode::update()
         dynamicThreshold =
             dynamicThreshold * THRESHOLD_SMOOTH_OLD + midpoint * THRESHOLD_SMOOTH_NEW;
 
-        if (bufferFull)
+        // Lock buffer for thread safety
+        if (xSemaphoreTake(bufferMutex, portMAX_DELAY) == pdTRUE)
         {
-            // Sliding window
-            for (int i = 0; i < PHOTODIODE_BUFFER_SIZE - 1; i++)
+            if (bufferFull)
             {
-                bitBuffer[i] = bitBuffer[i + 1];
+                // Sliding window
+                for (int i = 0; i < PHOTODIODE_BUFFER_SIZE - 1; i++)
+                {
+                    bitBuffer[i] = bitBuffer[i + 1];
+                }
+                bitBuffer[PHOTODIODE_BUFFER_SIZE - 1] = avgVoltage;
             }
-            bitBuffer[PHOTODIODE_BUFFER_SIZE - 1] = avgVoltage;
-        }
-        else
-        {
-            bitBuffer[bitIndex] = avgVoltage;
-            bitIndex++;
+            else
+            {
+                bitBuffer[bitIndex] = avgVoltage;
+                bitIndex++;
 
-            if (bitIndex >= PHOTODIODE_BUFFER_SIZE)
-            {
-                bufferFull = true;
+                if (bitIndex >= PHOTODIODE_BUFFER_SIZE)
+                {
+                    bufferFull = true;
+                }
             }
+            xSemaphoreGive(bufferMutex);
         }
 
         sampleIndex = 0;
@@ -111,13 +145,18 @@ uint16_t Photodiode::convertToBits()
     uint16_t result = 0;
     float threshold = dynamicThreshold;
 
-    for (int i = 0; i < PHOTODIODE_BUFFER_SIZE; i++)
+    // Lock buffer for thread safety
+    if (xSemaphoreTake(bufferMutex, portMAX_DELAY) == pdTRUE)
     {
-        result <<= 1;
-        if (bitBuffer[i] > threshold)
+        for (int i = 0; i < PHOTODIODE_BUFFER_SIZE; i++)
         {
-            result |= 1;
+            result <<= 1;
+            if (bitBuffer[i] > threshold)
+            {
+                result |= 1;
+            }
         }
+        xSemaphoreGive(bufferMutex);
     }
 
     return result;

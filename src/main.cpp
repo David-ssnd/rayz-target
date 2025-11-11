@@ -3,8 +3,14 @@
 #include "hash.h"
 #include "photodiode.hpp"
 #include "utils.h"
-#include <Arduino.h>
-#include <Wire.h>
+#include <driver/gpio.h>
+#include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
+
+static const char* TAG = "Target";
 
 Photodiode photodiode;
 BLETarget bleTarget;
@@ -15,111 +21,152 @@ uint16_t all_expected_messages = 0;
 uint16_t correct_messages = 0;
 uint16_t not_expected_messages = 0;
 
-void setup()
+// FreeRTOS queues and synchronization
+QueueHandle_t photodiodeMessageQueue;
+QueueHandle_t bleMessageQueue;
+SemaphoreHandle_t statsMutex;
+
+void photodiode_task(void* pvParameters)
 {
-    Serial.begin(115200);
-    delay(1000);
+    ESP_LOGI(TAG, "Photodiode task started");
 
-    pinMode(VIBRATION_PIN, OUTPUT);
-    digitalWrite(VIBRATION_PIN, LOW);
+    while (1)
+    {
+        photodiode.update();
 
-    photodiode.begin();
+        if (photodiode.isSampleBufferFull())
+        {
+            uint16_t message16bit = photodiode.convertToBits();
+
+            // Send to processing queue
+            if (xQueueSend(photodiodeMessageQueue, &message16bit, 0) != pdTRUE)
+            {
+                ESP_LOGW(TAG, "Failed to send to photodiode queue");
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1)); // 1ms delay
+    }
+}
+
+void ble_task(void* pvParameters)
+{
+    ESP_LOGI(TAG, "BLE task started");
 
     bleTarget.begin();
 
-    Serial.println("Target device ready - waiting for signals...");
-    Serial.println();
+    while (1)
+    {
+        bleTarget.update();
+
+        if (bleTarget.hasMessage())
+        {
+            uint16_t message = bleTarget.getMessage();
+
+            if (xSemaphoreTake(statsMutex, portMAX_DELAY) == pdTRUE)
+            {
+                all_expected_messages++;
+                expectedMessage = message;
+                hasExpectedMessage = true;
+                xSemaphoreGive(statsMutex);
+            }
+
+            ESP_LOGI(TAG, "📡BLE | %lu ms | %s | Expected Data: %u",
+                     pdTICKS_TO_MS(xTaskGetTickCount()),
+                     toBinaryString(expectedMessage, MESSAGE_TOTAL_BITS).c_str(),
+                     expectedMessage & 0xFF);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10)); // 10ms delay
+    }
 }
 
-void loop()
+void processing_task(void* pvParameters)
 {
-    photodiode.update();
+    ESP_LOGI(TAG, "Processing task started");
+    uint16_t message16bit;
 
-    if (photodiode.isSampleBufferFull())
+    while (1)
     {
-        uint16_t message16bit = photodiode.convertToBits();
-        uint16_t dataValue = 0;
-        bool isValid = validateMessage16bit(message16bit, &dataValue);
-
-        if (!isValid)
+        if (xQueueReceive(photodiodeMessageQueue, &message16bit, portMAX_DELAY) == pdTRUE)
         {
-            return;
-        }
+            uint16_t dataValue = 0;
+            bool isValid = validateMessage16bit(message16bit, &dataValue);
 
-        bool matchesBLE = false;
-        if (hasExpectedMessage && bleTarget.isConnected())
-        {
-            matchesBLE = (message16bit == expectedMessage);
-        }
+            if (!isValid)
+            {
+                continue;
+            }
 
-        Serial.print("Laser | ");
-        Serial.print(millis());
-        Serial.print(" ms | ");
-        Serial.print(toBinaryString(message16bit, 16));
-        Serial.print(" | Data: ");
+            bool matchesBLE = false;
+            if (xSemaphoreTake(statsMutex, portMAX_DELAY) == pdTRUE)
+            {
+                if (hasExpectedMessage && bleTarget.isConnected())
+                {
+                    matchesBLE = (message16bit == expectedMessage);
+                    if (matchesBLE)
+                    {
+                        correct_messages++;
+                    }
+                    else
+                    {
+                        not_expected_messages++;
+                    }
+                }
 
-        Serial.print(dataValue);
-        Serial.print(" (0b");
-        Serial.print(dataValue, BIN);
-        Serial.print(")");
+                float accuracy = (all_expected_messages > 0)
+                                     ? (correct_messages * 100.0f / all_expected_messages)
+                                     : 0.0f;
 
-        Serial.print(" | Sig: ");
-        Serial.print(photodiode.getSignalStrength(), 3);
-        Serial.print("V | Thr: ");
-        Serial.print(photodiode.getDynamicThreshold(), 4);
-        Serial.print("V");
+                ESP_LOGI(TAG,
+                         "Laser | %lu ms | %s | Data: %u (0x%X) | Sig: %.3fV | Thr: %.4fV | %s",
+                         pdTICKS_TO_MS(xTaskGetTickCount()),
+                         toBinaryString(message16bit, 16).c_str(), dataValue, dataValue,
+                         photodiode.getSignalStrength(), photodiode.getDynamicThreshold(),
+                         matchesBLE ? "✓ BLE MATCH" : "✗ BLE MISMATCH");
 
-        if (bleTarget.isConnected() && hasExpectedMessage && matchesBLE)
-        {
-            Serial.print(" | ✓ BLE MATCH");
-            correct_messages++;
-        }
-        else
-        {
-            Serial.print(" | ✗ BLE MISMATCH");
-            not_expected_messages++;
-        }
-        Serial.println();
-        Serial.print("Stats: ");
-        Serial.print(correct_messages);
-        Serial.print("/");
-        Serial.print(all_expected_messages);
-        Serial.print(" | Incorrect: ");
-        Serial.print(all_expected_messages - correct_messages);
-        Serial.print(" | Not Expected: ");
-        Serial.print(not_expected_messages);
-        Serial.print(" | Accuracy: ");
-        float accuracy = (all_expected_messages > 0)
-                             ? (correct_messages * 100.0f / all_expected_messages)
-                             : 0.0f;
-        Serial.print(accuracy, 2);
-        Serial.print("%");
-        Serial.println();
-    }
+                ESP_LOGI(TAG, "Stats: %u/%u | Incorrect: %u | Not Expected: %u | Accuracy: %.2f%%",
+                         correct_messages, all_expected_messages,
+                         all_expected_messages - correct_messages, not_expected_messages, accuracy);
 
-    bleTarget.update();
-
-    if (bleTarget.hasMessage())
-    {
-        all_expected_messages++;
-
-        expectedMessage = bleTarget.getMessage();
-        hasExpectedMessage = true;
-
-        Serial.println();
-        Serial.print("📡BLE | ");
-        Serial.print(millis());
-        Serial.print(" ms | ");
-        Serial.print(toBinaryString(expectedMessage, MESSAGE_TOTAL_BITS));
-        Serial.print(" | Expected Data: ");
-        uint16_t expectedData = 0;
-        if (validateMessage16bit(expectedMessage, &expectedData))
-        {
-            Serial.println(expectedData);
-        }
-        else
-        {
-            Serial.println("INVALID");
+                xSemaphoreGive(statsMutex);
+            }
         }
     }
+}
+
+extern "C" void app_main(void)
+{
+    ESP_LOGI(TAG, "Target device starting...");
+
+    // Initialize GPIO
+    gpio_config_t io_conf = {};
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = (1ULL << VIBRATION_PIN);
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    gpio_config(&io_conf);
+    gpio_set_level((gpio_num_t)VIBRATION_PIN, 0);
+
+    // Initialize photodiode
+    photodiode.begin();
+
+    // Create queues and synchronization primitives
+    photodiodeMessageQueue = xQueueCreate(10, sizeof(uint16_t));
+    bleMessageQueue = xQueueCreate(10, sizeof(uint16_t));
+    statsMutex = xSemaphoreCreateMutex();
+
+    if (photodiodeMessageQueue == NULL || bleMessageQueue == NULL || statsMutex == NULL)
+    {
+        ESP_LOGE(TAG, "Failed to create queues or mutex");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Target device ready - waiting for signals...");
+
+    // Create tasks
+    xTaskCreate(photodiode_task, "photodiode", 4096, NULL, 5, NULL);
+    xTaskCreate(ble_task, "ble", 8192, NULL, 4, NULL);
+    xTaskCreate(processing_task, "processing", 4096, NULL, 3, NULL);
 }
