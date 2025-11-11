@@ -3,8 +3,8 @@
 
 #include "protocol_config.h"
 
-#define PHOTODIODE_PIN 2
-#define VIBRATION_PIN 5
+#define PHOTODIODE_PIN 34
+#define VIBRATION_PIN 4
 
 #define SAMPLE_INTERVAL SAMPLE_INTERVAL_MS
 #define VIBRATION_DURATION 50
