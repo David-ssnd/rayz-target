@@ -1,7 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include <shared/protocol_config.h>
+#include "protocol_config.h"
 
 // Hardware pins
 #define PHOTODIODE_PIN 34

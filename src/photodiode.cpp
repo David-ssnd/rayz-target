@@ -8,7 +8,8 @@ static const char* TAG = "Photodiode";
 Photodiode::Photodiode()
 {
     sampleIndex = 0;
-    bitIndex = 0;
+    bitHead = 0;
+    bitCount = 0;
     bufferFull = false;
     sampleBufferFull = false;
     runningMin = 3.3f;
@@ -41,8 +42,7 @@ void Photodiode::begin()
         .atten = ADC_ATTEN_DB_11,
         .bitwidth = ADC_BITWIDTH_12,
     };
-    ESP_ERROR_CHECK(
-        adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_6, &config)); // GPIO34 = ADC1_CHANNEL_6
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_6, &config)); // GPIO34 = ADC1_CHANNEL_6
 
     for (int i = 0; i < SAMPLES_PER_BIT; i++)
     {
@@ -52,6 +52,8 @@ void Photodiode::begin()
     {
         bitBuffer[i] = 0.0f;
     }
+    bitHead = 0;
+    bitCount = 0;
 
     lastSampleTime = pdTICKS_TO_MS(xTaskGetTickCount());
     bitStartTime = pdTICKS_TO_MS(xTaskGetTickCount());
@@ -73,15 +75,9 @@ void Photodiode::update()
     ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, ADC_CHANNEL_6, &rawValue));
     float voltage = (rawValue * ADC_VREF) / ADC_RESOLUTION;
 
-    // Update min/max
-    if (voltage < runningMin)
-    {
-        runningMin = runningMin * THRESHOLD_MIN_WEIGHT + voltage * THRESHOLD_NEW_WEIGHT;
-    }
-    else if (voltage > runningMax)
-    {
-        runningMax = runningMax * THRESHOLD_MIN_WEIGHT + voltage * THRESHOLD_NEW_WEIGHT;
-    }
+    // Decay toward recent samples to avoid stale thresholds
+    runningMin = runningMin * THRESHOLD_MIN_WEIGHT + voltage * THRESHOLD_NEW_WEIGHT;
+    runningMax = runningMax * THRESHOLD_MIN_WEIGHT + voltage * THRESHOLD_NEW_WEIGHT;
 
     sampleBuffer[sampleIndex] = voltage;
     sampleIndex++;
@@ -100,29 +96,20 @@ void Photodiode::update()
 
         // Update threshold
         float midpoint = (runningMin + runningMax) * 0.5f;
-        dynamicThreshold =
-            dynamicThreshold * THRESHOLD_SMOOTH_OLD + midpoint * THRESHOLD_SMOOTH_NEW;
+        dynamicThreshold = dynamicThreshold * THRESHOLD_SMOOTH_OLD + midpoint * THRESHOLD_SMOOTH_NEW;
 
         // Lock buffer for thread safety
         if (xSemaphoreTake(bufferMutex, portMAX_DELAY) == pdTRUE)
         {
-            if (bufferFull)
+            bitBuffer[bitHead] = avgVoltage;
+            bitHead = (bitHead + 1) % PHOTODIODE_BUFFER_SIZE;
+            if (!bufferFull)
             {
-                // Sliding window
-                for (int i = 0; i < PHOTODIODE_BUFFER_SIZE - 1; i++)
-                {
-                    bitBuffer[i] = bitBuffer[i + 1];
-                }
-                bitBuffer[PHOTODIODE_BUFFER_SIZE - 1] = avgVoltage;
-            }
-            else
-            {
-                bitBuffer[bitIndex] = avgVoltage;
-                bitIndex++;
-
-                if (bitIndex >= PHOTODIODE_BUFFER_SIZE)
+                bitCount++;
+                if (bitCount >= PHOTODIODE_BUFFER_SIZE)
                 {
                     bufferFull = true;
+                    bitCount = PHOTODIODE_BUFFER_SIZE;
                 }
             }
             xSemaphoreGive(bufferMutex);
@@ -148,10 +135,13 @@ uint16_t Photodiode::convertToBits()
     // Lock buffer for thread safety
     if (xSemaphoreTake(bufferMutex, portMAX_DELAY) == pdTRUE)
     {
-        for (int i = 0; i < PHOTODIODE_BUFFER_SIZE; i++)
+        int start = bufferFull ? bitHead : 0;
+        int count = bufferFull ? PHOTODIODE_BUFFER_SIZE : bitCount;
+        for (int i = 0; i < count; i++)
         {
             result <<= 1;
-            if (bitBuffer[i] > threshold)
+            int idx = (start + i) % PHOTODIODE_BUFFER_SIZE;
+            if (bitBuffer[idx] > threshold)
             {
                 result |= 1;
             }

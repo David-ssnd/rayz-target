@@ -7,12 +7,14 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-class Photodiode {
+class Photodiode
+{
   private:
     float sampleBuffer[SAMPLES_PER_BIT];
     int sampleIndex;
     float bitBuffer[PHOTODIODE_BUFFER_SIZE];
-    int bitIndex;
+    int bitHead;  // Next write position (ring buffer)
+    int bitCount; // How many entries are valid until buffer fills
     bool bufferFull;
     bool sampleBufferFull;
     float runningMin;
@@ -22,6 +24,7 @@ class Photodiode {
     uint32_t bitStartTime;
     adc_oneshot_unit_handle_t adc_handle;
     SemaphoreHandle_t bufferMutex;
+
   public:
     Photodiode();
     void begin();

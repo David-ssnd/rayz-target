@@ -3,6 +3,7 @@
 #include "hash.h"
 #include "photodiode.hpp"
 #include "utils.h"
+#include "wifi_manager.h"
 #include <driver/gpio.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
@@ -14,6 +15,7 @@ static const char* TAG = "Target";
 
 Photodiode photodiode;
 BLETarget bleTarget;
+
 uint16_t expectedMessage = 0;
 bool hasExpectedMessage = false;
 
@@ -23,12 +25,14 @@ uint16_t not_expected_messages = 0;
 
 // FreeRTOS queues and synchronization
 QueueHandle_t photodiodeMessageQueue;
-QueueHandle_t bleMessageQueue;
 SemaphoreHandle_t statsMutex;
 
 void photodiode_task(void* pvParameters)
 {
     ESP_LOGI(TAG, "Photodiode task started");
+
+    TickType_t lastWake = xTaskGetTickCount();
+    const TickType_t samplePeriodTicks = pdMS_TO_TICKS(SAMPLE_INTERVAL_MS);
 
     while (1)
     {
@@ -45,7 +49,7 @@ void photodiode_task(void* pvParameters)
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(1)); // 1ms delay
+        vTaskDelayUntil(&lastWake, samplePeriodTicks);
     }
 }
 
@@ -59,10 +63,9 @@ void ble_task(void* pvParameters)
     {
         bleTarget.update();
 
-        if (bleTarget.hasMessage())
+        uint16_t message = 0;
+        while (bleTarget.fetchMessage(&message, 0))
         {
-            uint16_t message = bleTarget.getMessage();
-
             if (xSemaphoreTake(statsMutex, portMAX_DELAY) == pdTRUE)
             {
                 all_expected_messages++;
@@ -71,16 +74,13 @@ void ble_task(void* pvParameters)
                 xSemaphoreGive(statsMutex);
             }
 
-            ESP_LOGI(TAG, "📡BLE | %lu ms | %s | Expected Data: %u",
-                     pdTICKS_TO_MS(xTaskGetTickCount()),
-                     toBinaryString(expectedMessage, MESSAGE_TOTAL_BITS).c_str(),
-                     expectedMessage & 0xFF);
+            ESP_LOGI(TAG, "[BLE] %lu ms | %s | Expected Data: %u", pdTICKS_TO_MS(xTaskGetTickCount()),
+                     toBinaryString(expectedMessage, MESSAGE_TOTAL_BITS).c_str(), expectedMessage & 0xFF);
         }
 
         vTaskDelay(pdMS_TO_TICKS(10)); // 10ms delay
     }
 }
-
 void processing_task(void* pvParameters)
 {
     ESP_LOGI(TAG, "Processing task started");
@@ -99,6 +99,12 @@ void processing_task(void* pvParameters)
             }
 
             bool matchesBLE = false;
+            uint16_t expectedSnapshot = 0;
+            uint16_t correctSnapshot = correct_messages;
+            uint16_t allSnapshot = all_expected_messages;
+            uint16_t notExpectedSnapshot = not_expected_messages;
+            float accuracy = 0.0f;
+
             if (xSemaphoreTake(statsMutex, portMAX_DELAY) == pdTRUE)
             {
                 if (hasExpectedMessage && bleTarget.isConnected())
@@ -114,23 +120,22 @@ void processing_task(void* pvParameters)
                     }
                 }
 
-                float accuracy = (all_expected_messages > 0)
-                                     ? (correct_messages * 100.0f / all_expected_messages)
-                                     : 0.0f;
-
-                ESP_LOGI(TAG,
-                         "Laser | %lu ms | %s | Data: %u (0x%X) | Sig: %.3fV | Thr: %.4fV | %s",
-                         pdTICKS_TO_MS(xTaskGetTickCount()),
-                         toBinaryString(message16bit, 16).c_str(), dataValue, dataValue,
-                         photodiode.getSignalStrength(), photodiode.getDynamicThreshold(),
-                         matchesBLE ? "✓ BLE MATCH" : "✗ BLE MISMATCH");
-
-                ESP_LOGI(TAG, "Stats: %u/%u | Incorrect: %u | Not Expected: %u | Accuracy: %.2f%%",
-                         correct_messages, all_expected_messages,
-                         all_expected_messages - correct_messages, not_expected_messages, accuracy);
+                expectedSnapshot = expectedMessage;
+                correctSnapshot = correct_messages;
+                allSnapshot = all_expected_messages;
+                notExpectedSnapshot = not_expected_messages;
+                accuracy = (allSnapshot > 0) ? (correctSnapshot * 100.0f / allSnapshot) : 0.0f;
 
                 xSemaphoreGive(statsMutex);
             }
+
+            ESP_LOGI(TAG, "[Laser] %lu ms | %s | Data: %u (0x%X) | Sig: %.3fV | Thr: %.4fV | %s",
+                     pdTICKS_TO_MS(xTaskGetTickCount()), toBinaryString(message16bit, 16).c_str(), dataValue, dataValue,
+                     photodiode.getSignalStrength(), photodiode.getDynamicThreshold(),
+                     matchesBLE ? "BLE MATCH" : "BLE MISMATCH");
+
+            ESP_LOGI(TAG, "Stats: %u/%u | Incorrect: %u | Not Expected: %u | Accuracy: %.2f%%", correctSnapshot,
+                     allSnapshot, allSnapshot - correctSnapshot, notExpectedSnapshot, accuracy);
         }
     }
 }
@@ -138,6 +143,9 @@ void processing_task(void* pvParameters)
 extern "C" void app_main(void)
 {
     ESP_LOGI(TAG, "Target device starting...");
+
+    // Start WiFi provisioning / connection (non-blocking)
+    wifi_manager_init("rayz-target", "target");
 
     // Initialize GPIO
     gpio_config_t io_conf = {};
@@ -154,10 +162,9 @@ extern "C" void app_main(void)
 
     // Create queues and synchronization primitives
     photodiodeMessageQueue = xQueueCreate(10, sizeof(uint16_t));
-    bleMessageQueue = xQueueCreate(10, sizeof(uint16_t));
     statsMutex = xSemaphoreCreateMutex();
 
-    if (photodiodeMessageQueue == NULL || bleMessageQueue == NULL || statsMutex == NULL)
+    if (photodiodeMessageQueue == NULL || statsMutex == NULL)
     {
         ESP_LOGE(TAG, "Failed to create queues or mutex");
         return;
@@ -165,7 +172,7 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "Target device ready - waiting for signals...");
 
-    // Create tasks
+    // Create tasks (WiFi runs independently)
     xTaskCreate(photodiode_task, "photodiode", 4096, NULL, 5, NULL);
     xTaskCreate(ble_task, "ble", 8192, NULL, 4, NULL);
     xTaskCreate(processing_task, "processing", 4096, NULL, 3, NULL);
