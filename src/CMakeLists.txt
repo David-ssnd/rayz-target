@@ -2,6 +2,11 @@ idf_component_register(
     SRCS 
         "main.cpp"
         "photodiode.cpp"
+        "task_shared.cpp"
+        "tasks/photodiode_task.cpp"
+        "tasks/processing_task.cpp"
+        "tasks/espnow_task.cpp"
+        "tasks/ws_task.cpp"
     INCLUDE_DIRS 
         "../include"
     REQUIRES

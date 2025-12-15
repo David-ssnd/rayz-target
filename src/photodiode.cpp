@@ -120,7 +120,7 @@ void Photodiode::update()
     }
 }
 
-uint16_t Photodiode::convertToBits()
+uint32_t Photodiode::convertToBits()
 {
     if (!bufferFull)
     {
@@ -129,7 +129,7 @@ uint16_t Photodiode::convertToBits()
 
     sampleBufferFull = false;
 
-    uint16_t result = 0;
+    uint32_t result = 0;
     float threshold = dynamicThreshold;
 
     // Lock buffer for thread safety
