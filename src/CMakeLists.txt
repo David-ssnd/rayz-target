@@ -13,7 +13,6 @@ idf_component_register(
         driver
         esp_adc
         nvs_flash
-        bt
         shared
         esp_websocket_client
 )

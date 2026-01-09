@@ -39,7 +39,6 @@ void processing_task(void* pvParameters)
         }
 
         bool matchesExpected = false;
-        uint16_t expectedSnapshot = 0;
         uint16_t correctSnapshot = correct_messages;
         uint16_t allSnapshot = all_expected_messages;
         uint16_t notExpectedSnapshot = not_expected_messages;
@@ -49,7 +48,7 @@ void processing_task(void* pvParameters)
         {
             if (hasExpectedMessage && (xTaskGetTickCount() - last_expected_update) < pdMS_TO_TICKS(5000))
             {
-                matchesExpected = (message16bit == expectedMessage);
+                matchesExpected = (message_bits == expectedMessage);
                 if (matchesExpected)
                 {
                     correct_messages++;
@@ -60,7 +59,6 @@ void processing_task(void* pvParameters)
                 }
             }
 
-            expectedSnapshot = expectedMessage;
             correctSnapshot = correct_messages;
             allSnapshot = all_expected_messages;
             notExpectedSnapshot = not_expected_messages;

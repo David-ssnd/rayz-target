@@ -6,10 +6,8 @@
 #include <freertos/task.h>
 #include <stdint.h>
 #include "photodiode.hpp"
-#include "ble_target.h"
 
 extern Photodiode photodiode;
-extern BLETarget bleTarget;
 
 extern uint32_t expectedMessage;
 extern bool hasExpectedMessage;

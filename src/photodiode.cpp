@@ -34,12 +34,13 @@ void Photodiode::begin()
     // Configure ADC
     adc_oneshot_unit_init_cfg_t init_config = {
         .unit_id = ADC_UNIT_1,
+        .clk_src = ADC_RTC_CLK_SRC_DEFAULT,
         .ulp_mode = ADC_ULP_MODE_DISABLE,
     };
     ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &adc_handle));
 
     adc_oneshot_chan_cfg_t config = {
-        .atten = ADC_ATTEN_DB_11,
+        .atten = ADC_ATTEN_DB_12,
         .bitwidth = ADC_BITWIDTH_12,
     };
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_6, &config)); // GPIO34 = ADC1_CHANNEL_6
@@ -120,7 +121,7 @@ void Photodiode::update()
     }
 }
 
-uint32_t Photodiode::convertToBits()
+uint16_t Photodiode::convertToBits()
 {
     if (!bufferFull)
     {
@@ -129,7 +130,7 @@ uint32_t Photodiode::convertToBits()
 
     sampleBufferFull = false;
 
-    uint32_t result = 0;
+    uint16_t result = 0;
     float threshold = dynamicThreshold;
 
     // Lock buffer for thread safety

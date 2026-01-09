@@ -1,7 +1,6 @@
 #include "task_shared.h"
 
 Photodiode photodiode;
-BLETarget bleTarget;
 
 uint32_t expectedMessage = 0;
 bool hasExpectedMessage = false;
