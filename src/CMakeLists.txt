@@ -3,10 +3,12 @@ idf_component_register(
         "main.cpp"
         "photodiode.cpp"
         "task_shared.cpp"
+        "config.cpp"
         "tasks/photodiode_task.cpp"
         "tasks/processing_task.cpp"
         "tasks/espnow_task.cpp"
         "tasks/ws_task.cpp"
+        "tasks/game_task.cpp"
     INCLUDE_DIRS 
         "../include"
     REQUIRES

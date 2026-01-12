@@ -6,7 +6,7 @@
 
 static const char* TAG = "WsTask";
 
-void ws_task(void* pvParameters)
+extern "C" void ws_task(void* pvParameters)
 {
     ESP_LOGI(TAG, "WebSocket task started");
 

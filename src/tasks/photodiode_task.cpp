@@ -4,7 +4,7 @@
 
 static const char* TAG = "PhotodiodeTask";
 
-void photodiode_task(void* pvParameters)
+extern "C" void photodiode_task(void* pvParameters)
 {
     ESP_LOGI(TAG, "Photodiode task started");
     TickType_t lastWake = xTaskGetTickCount();

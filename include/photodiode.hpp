@@ -1,11 +1,11 @@
-#ifndef PHOTODIODE_HPP
-#define PHOTODIODE_HPP
+#pragma once
 
-#include "config.h"
-#include "hash.h"
-#include <esp_adc/adc_oneshot.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <esp_adc/adc_oneshot.h>
+#include "config.h"
+#include "hash.h"
+
 
 class Photodiode
 {
@@ -14,7 +14,8 @@ class Photodiode
     int sampleIndex;
 
     float bitBuffer[PHOTODIODE_BUFFER_SIZE];
-    int bitIndex;
+    int bitHead;
+    int bitCount;
     bool bufferFull;
     bool sampleBufferFull;
 
@@ -25,21 +26,16 @@ class Photodiode
     uint32_t lastSampleTime;
     uint32_t bitStartTime;
 
-    // ESP-IDF ADC handle
     adc_oneshot_unit_handle_t adc_handle;
-
-    // FreeRTOS synchronization
     SemaphoreHandle_t bufferMutex;
 
   public:
     Photodiode();
     void begin();
     void update();
-    uint32_t convertToBits();
+    uint16_t convertToBits();
     float getDynamicThreshold();
     bool isBufferFull();
     bool isSampleBufferFull();
     float getSignalStrength();
 };
-
-#endif

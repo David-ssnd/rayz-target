@@ -18,7 +18,7 @@ static void load_peers_from_nvs(void)
     }
 }
 
-void espnow_task(void* pvParameters)
+extern "C" void espnow_task(void* pvParameters)
 {
     const DeviceConfig* config = game_state_get_config();
     s_self_device_id = config->device_id;
@@ -55,8 +55,7 @@ void espnow_task(void* pvParameters)
                 game_state_record_kill();
                 ws_server_broadcast_game_state();
                 ESP_LOGI(TAG, "Hit confirmed by peer (%02X:%02X:%02X:%02X:%02X:%02X) data=%u", env.src_mac[0],
-                         env.src_mac[1], env.src_mac[2], env.src_mac[3], env.src_mac[4], env.src_mac[5],
-                         env.msg.data);
+                         env.src_mac[1], env.src_mac[2], env.src_mac[3], env.src_mac[4], env.src_mac[5], env.msg.data);
             }
         }
     }

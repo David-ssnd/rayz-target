@@ -2,16 +2,18 @@
 #include <esp_timer.h>
 #include <driver/gpio.h>
 #include "config.h"
+#include "display_manager.h"
 #include "espnow_comm.h"
 #include "game_state.h"
 #include "hash.h"
 #include "task_shared.h"
+#include "tasks.h"
 #include "utils.h"
 #include "ws_server.h"
 
 static const char* TAG = "ProcessingTask";
 
-void processing_task(void* pvParameters)
+extern "C" void processing_task(void* pvParameters)
 {
     ESP_LOGI(TAG, "Processing task started");
     uint32_t message_bits;
@@ -82,6 +84,12 @@ void processing_task(void* pvParameters)
             gpio_set_level((gpio_num_t)VIBRATION_PIN, 0);
 
             game_state_record_death();
+            game_task_record_hit();
+
+            // Display hit notification
+            dm_event_t hit_evt = {};
+            hit_evt.type = DM_EVT_HIT;
+            display_manager_post(&hit_evt);
 
             PlayerMessage hit_msg = {};
             hit_msg.type = ESPNOW_MSG_HIT_EVENT;

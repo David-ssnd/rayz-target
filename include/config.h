@@ -18,4 +18,14 @@
 // Threshold
 #define THRESHOLD_MARGIN 0.1f
 
-#endif
+// I2C pins for OLED display (ESP32-DevKit native I2C)
+#define I2C_SDA_PIN 21
+#define I2C_SCL_PIN 22
+#define OLED_I2C_ADDR 0x3C
+#define OLED_WIDTH 128
+#define OLED_HEIGHT 32
+
+// Reset button (GPIO 15 with pull-up)
+#define RESET_BUTTON_PIN 15
+
+#endif // CONFIG_H
